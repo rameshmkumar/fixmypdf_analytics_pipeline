@@ -40,7 +40,10 @@ jobs:
         pip install -r requirements.txt
         
     - name: Create data directory
-      run: mkdir -p data
+      run: |
+        # Remove any existing database to avoid version conflicts
+        rm -f data/dashboard_analytics.duckdb
+        mkdir -p data
       
     - name: Run ETL Pipeline
       env:

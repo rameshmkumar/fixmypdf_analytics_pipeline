@@ -59,6 +59,10 @@ logs/
 *.sqlite
 *.sqlite3
 
+# DuckDB database files (can cause version conflicts)
+# Comment out the line below if you want to commit the database
+data/dashboard_analytics.duckdb
+
 # Temporary files
 *.tmp
 *.temp
