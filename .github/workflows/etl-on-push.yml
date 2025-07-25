@@ -1,0 +1,79 @@
+name: ETL on Code Changes
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'dashboard_star_schema_etl.py'
+      - 'requirements.txt'
+      - '.github/workflows/**'
+  
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'dashboard_star_schema_etl.py'
+      - 'requirements.txt'
+
+jobs:
+  test-etl:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Validate ETL Script
+      run: |
+        echo "🔍 Validating ETL script syntax..."
+        python -m py_compile dashboard_star_schema_etl.py
+        echo "✅ ETL script syntax is valid"
+        
+    - name: Test ETL Pipeline (Dry Run)
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      run: |
+        echo "🧪 Testing ETL pipeline..."
+        
+        # Test database connection and schema creation
+        python -c "
+        from dashboard_star_schema_etl import DashboardStarSchemaETL
+        import os
+        
+        print('✅ ETL class imports successfully')
+        
+        # Test database connection
+        etl = DashboardStarSchemaETL()
+        print('✅ Database connection established')
+        print('✅ Schema creation completed')
+        
+        etl.duckdb_conn.close()
+        print('✅ ETL validation passed')
+        "
+        
+    - name: Run Full ETL (on main branch only)
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      run: |
+        echo "🚀 Running full ETL pipeline on main branch..."
+        python dashboard_star_schema_etl.py
+        
+    - name: Upload test artifacts
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: etl-test-results-${{ github.run_number }}
+        path: data/
+        retention-days: 7

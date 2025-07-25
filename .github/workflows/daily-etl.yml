@@ -1,0 +1,112 @@
+name: Automated ETL Pipeline
+
+on:
+  # Run every 2 hours for near real-time updates
+  schedule:
+    - cron: '0 */2 * * *'
+  
+  # Allow manual triggering for testing
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Force run ETL pipeline'
+        required: false
+        default: 'false'
+
+jobs:
+  run-etl:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Create data directory
+      run: mkdir -p data
+      
+    - name: Run ETL Pipeline
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      run: |
+        echo "🚀 Starting 2-hourly ETL pipeline..."
+        python dashboard_star_schema_etl.py
+        
+    - name: Verify ETL Results
+      run: |
+        echo "📊 Verifying ETL results..."
+        python -c "
+        import duckdb
+        import os
+        
+        if os.path.exists('data/dashboard_analytics.duckdb'):
+            conn = duckdb.connect('data/dashboard_analytics.duckdb')
+            
+            # Check table counts
+            tables = ['fact_analytics', 'fact_daily_kpis', 'dim_tools']
+            for table in tables:
+                count = conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+                print(f'✅ {table}: {count} records')
+            
+            # Check latest data
+            latest = conn.execute('SELECT MAX(created_at) FROM fact_analytics').fetchone()[0]
+            print(f'✅ Latest data: {latest}')
+            
+            conn.close()
+            print('✅ ETL verification passed!')
+        else:
+            print('❌ Database file not found!')
+            exit(1)
+        "
+        
+    - name: Upload ETL artifacts
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: etl-database-${{ github.run_number }}
+        path: data/dashboard_analytics.duckdb
+        retention-days: 30
+        
+    - name: Commit updated database (if changed)
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Check if database file changed
+        if git diff --name-only | grep -q "data/dashboard_analytics.duckdb"; then
+          echo "📊 Database updated, committing changes..."
+          git add data/dashboard_analytics.duckdb
+          git commit -m "🤖 Automated ETL update - $(date '+%Y-%m-%d %H:%M UTC')" || exit 0
+          git push
+        else
+          echo "📊 No database changes detected"
+        fi
+        
+    - name: ETL Summary
+      if: always()
+      run: |
+        echo "🎯 ETL PIPELINE SUMMARY"
+        echo "======================"
+        echo "📅 Run Date: $(date)"
+        echo "🔄 Workflow: ${{ github.workflow }}"
+        echo "🆔 Run ID: ${{ github.run_id }}"
+        echo "⏰ Schedule: Every 2 hours"
+        echo "✅ Status: Pipeline completed"
